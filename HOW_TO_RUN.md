@@ -42,6 +42,35 @@ ALL_Study_App\
 
 The folder names only need to contain `IDB1` and `IDB2`. Keep the original file names.
 
+### If you were given the dataset files
+
+You may receive the dataset as a folder (often called `Dataset`) or as two zip files named like
+`ALL_IDB1(Fabio Scotti)-....zip` and `ALL_IDB2(Fabio Scotti)-....zip`.
+
+1. **Zip files:** right-click each one → **Extract All…**. The app cannot read zip files directly.
+2. Copy the extracted folders (or the whole `Dataset` folder) into the app's `data` folder:
+
+   ```
+   Lukemia_Experiments\
+   └── data\
+       └── Dataset\
+           ├── ALL_IDB1(Fabio Scotti)-...\ALL_IDB1(Fabio Scotti)\im\    ← Im001_1.jpg ...
+           │                                                    \xyc\   ← Im001_1.xyc ...
+           └── ALL_IDB2(Fabio Scotti)-...\ALL_IDB2(Fabio Scotti)\img\   ← Im001_1.tif ...
+   ```
+
+   The long folder names and extra sub-folders are fine: the app searches inside `data`
+   and recognises the folders by `IDB1` / `IDB2` in their names.
+3. Start the app and open the **Dataset** page. It should show **108** smear images,
+   **108** centroid files and **260** single-cell images.
+
+**Prefer to keep the files where they are?** Leave them in any folder, open the **Dataset**
+page, paste that folder's full path (e.g. `D:\Research\Dataset`) into **Dataset folder** and
+click **Save and scan**.
+
+If the counts stay at 0, check that you extracted the zip files and that the image files still
+have their original names (`Im001_1.jpg`, `Im001_1.tif`, ...).
+
 No dataset yet? The app still runs in **demo mode** on synthetic test images, so you can
 try every screen. Demo numbers are not real results.
 

@@ -13,7 +13,8 @@ Research tool only. Not a medical device and not for diagnosis.
 2. Install Git, then run `git clone https://github.com/NishantVibhute/Lukemia_Experiments.git`
    (later, `git pull` in that folder fetches updates).
 3. Get the ALL-IDB dataset from its owner (https://scotti.di.unimi.it/all/) and put the
-   `ALL_IDB1` and `ALL_IDB2` folders in the `data` folder. Without it the app runs in demo mode.
+   `ALL_IDB1` and `ALL_IDB2` folders in the `data` folder. Received the dataset files from someone?
+   See [HOW_TO_RUN.md](HOW_TO_RUN.md#if-you-were-given-the-dataset-files). Without it the app runs in demo mode.
 4. Double-click **`start_app.bat`**. The first start installs everything (5–15 minutes); then the
    app opens at http://localhost:8501.
 
