@@ -23,7 +23,7 @@ sys.path.insert(0, str(ROOT / "backend"))
 
 from app import config, datasets, deep, features, phases, preprocessing as pp, segmentation as seg  # noqa: E402
 from app.classify import MODEL_NAMES  # noqa: E402
-from app.imaging import decode_bytes  # noqa: E402
+from app.imaging import decode_bytes, resize_max  # noqa: E402
 
 RESULTS = ROOT / "results"
 STATE = RESULTS / "state.json"
@@ -289,6 +289,22 @@ def get_smears():
     return load_smears(study["source"], study["n"], settings["dataset_root"], settings["masks_dir"])
 
 
+MANY = 10  # images shown at once in the "several images" view
+
+
+def small(img, side=480):
+    """Downscale for display so a grid of images stays fast."""
+    return rgb(resize_max(img, side)[0])
+
+
+def grid(cells, columns=4):
+    """Show (image, caption) pairs in rows of `columns`."""
+    for start in range(0, len(cells), columns):
+        cols = st.columns(columns)
+        for col, (im, cap) in zip(cols, cells[start:start + columns]):
+            col.image(im, caption=cap, use_container_width=True)
+
+
 def preview_picker(samples, key):
     names = [s[0] for s in samples]
     return samples[names.index(st.selectbox("Preview image", names, key=key))]
@@ -425,6 +441,25 @@ elif page.startswith("1"):
             "SSIM": "how well shapes and edges are preserved, from 0 to 1. Higher is better.",
             "Small number under each value": "the change compared with the noisy image, before filtering.",
         })
+        if st.toggle(f"Show {min(MANY, len(samples))} images at once", False, key="many1",
+                      help="Applies the same noise and filter to several images, so you can see whether "
+                           "the result holds up beyond the one preview image."):
+            cells, gains = [], []
+            with st.spinner("Filtering…"):
+                for i, (n_, im, *_r) in enumerate(samples[:MANY]):
+                    nz = pp.add_noise(im, kind, sp, sigma, seed=i)  # same noise as when the trial is saved
+                    out_ = phases.denoise(nz, den)
+                    qa, qb = pp.quality(im, out_), pp.quality(im, nz)
+                    gains.append(qa["psnr"] - qb["psnr"])
+                    bx = phases.zoom_box(im) if zoom else (slice(None), slice(None))
+                    cells += [(small(nz[bx]), f"{n_} · BEFORE · {qb['psnr']:.1f} dB"),
+                              (small(out_[bx]), f"{n_} · AFTER · {qa['psnr']:.1f} dB")]
+            better = sum(g > 0.5 for g in gains)
+            verdict("good" if better == len(gains) else ("bad" if better == 0 else "flat"),
+                    f"The filter improved {better} of {len(gains)} images; average PSNR change "
+                    f"{np.mean(gains):+.1f} dB (lowest {min(gains):+.1f}, highest {max(gains):+.1f}).")
+            st.caption("Each pair is one image: BEFORE (with noise) on the left, AFTER (filtered) on the right.")
+            grid(cells, 4)
         step(4, "Save it if you want to compare it later")
         st.caption(f"The numbers above are for this one image. Saving repeats the test on {len(samples)} images and stores the average.")
 
@@ -543,6 +578,23 @@ elif page.startswith("2"):
             "Entropy (bits)": "amount of detail in the image. Higher means more variation, including noise.",
             "Dice (Otsu)": "only shown when you have ground-truth masks: how well a simple segmentation matches them.",
         })
+        if st.toggle(f"Show {min(MANY, len(samples))} images at once", False, key="many2",
+                      help="Applies the same enhancement to several images."):
+            cells, changes = [], []
+            with st.spinner("Enhancing…"):
+                for n_, im, tr, *_r in samples[:MANY]:
+                    b_ = phases.denoise(im, den)
+                    a_ = phases.enhance(b_, enh)
+                    sb, sa = phases.separability(b_), phases.separability(a_)
+                    changes.append(sa - sb)
+                    cells += [(show(resize_max(b_, 480)[0]), f"{n_} · BEFORE · separability {sb:.3f}"),
+                              (show(resize_max(a_, 480)[0]), f"{n_} · AFTER · separability {sa:.3f}")]
+            better = sum(c_ > 0.005 for c_ in changes)
+            verdict("good" if better == len(changes) else ("bad" if better == 0 else "flat"),
+                    f"Nuclei became easier to pick out in {better} of {len(changes)} images; average separability "
+                    f"change {np.mean(changes):+.3f}.")
+            st.caption("Each pair is one image: BEFORE (denoised only) on the left, AFTER on the right.")
+            grid(cells, 4)
         step(3, "Save it if you want to compare it later")
         st.caption(f"The numbers above are for this one image. Saving repeats the test on {len(samples)} images and stores the average.")
         if st.button(f"Save this trial (measure on {len(samples)} images)", type="primary"):
@@ -650,6 +702,27 @@ elif page.startswith("3"):
                                          "neighbour. **Higher is better. This measures overlap handling.**",
             "Dice / IoU": "only shown when you have ground-truth masks: overlap between the outlines and the true cell area.",
         })
+        if st.toggle(f"Show {min(MANY, len(samples))} images at once", False, key="many3",
+                      help="Runs the same segmentation on several images."):
+            cells, marked, separated = [], 0, 0
+            with st.spinner("Segmenting…"):
+                for n_, im, tr, pts_, tc in samples[:MANY]:
+                    w_ = phases.preprocess(im, den, enh)
+                    lab_ = phases.segment(w_, sg)
+                    sc_ = phases.segmentation_scores(lab_, tr, pts_, tc)
+                    cap = f"{n_} · {sc_['instances']} outlines"
+                    if pts_:
+                        marked += len(pts_)
+                        separated += round(sc_["separated"] * len(pts_))
+                        cap += f" · {round(sc_['separated'] * len(pts_))}/{len(pts_)} marked cells separated"
+                    cells.append((small(seg.overlay(w_, lab_, thickness=3)), cap))
+            if marked:
+                verdict("good" if separated / marked >= 0.9 else "flat",
+                        f"Across these images the method gave {separated} of {marked} marked leukaemia cells "
+                        f"their own outline ({separated / marked:.0%}).")
+            else:
+                verdict("flat", "None of these images have marked cells to check against, so judge by eye.")
+            grid(cells, 3)
         step(3, "Save it if you want to compare it later")
         st.caption(f"The numbers above are for this one image. Saving repeats the test on {len(samples)} images and stores the average.")
         if st.button(f"Save this trial (measure on {len(samples)} images)", type="primary"):
