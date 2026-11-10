@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+.pytest_cache/
+.venv/
+
+# Local data and outputs: never commit these
+Dataset/
+data/*
+!data/PUT_ALL_IDB_HERE.txt
+results/
+backend/settings.json
+backend/models/
+
+# Unpublished thesis documents
+*.docx
+
+# Not part of the shared app
+old_web_app/
+.claude/

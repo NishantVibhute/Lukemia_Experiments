@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+python-multipart
+numpy
+scipy
+opencv-python
+scikit-image
+scikit-learn
+joblib
+torch
+torchvision
+pytest
+httpx
