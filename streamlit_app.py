@@ -289,9 +289,6 @@ def get_smears():
     return load_smears(study["source"], study["n"], settings["dataset_root"], settings["masks_dir"])
 
 
-MANY = 10  # images shown at once in the "several images" view
-
-
 def small(img, side=480):
     """Downscale for display so a grid of images stays fast."""
     return rgb(resize_max(img, side)[0])
@@ -441,12 +438,12 @@ elif page.startswith("1"):
             "SSIM": "how well shapes and edges are preserved, from 0 to 1. Higher is better.",
             "Small number under each value": "the change compared with the noisy image, before filtering.",
         })
-        if st.toggle(f"Show {min(MANY, len(samples))} images at once", False, key="many1",
+        if st.toggle(f"Show all {len(samples)} images at once", False, key="many1",
                       help="Applies the same noise and filter to several images, so you can see whether "
                            "the result holds up beyond the one preview image."):
             cells, gains = [], []
             with st.spinner("Filtering…"):
-                for i, (n_, im, *_r) in enumerate(samples[:MANY]):
+                for i, (n_, im, *_r) in enumerate(samples):
                     nz = pp.add_noise(im, kind, sp, sigma, seed=i)  # same noise as when the trial is saved
                     out_ = phases.denoise(nz, den)
                     qa, qb = pp.quality(im, out_), pp.quality(im, nz)
@@ -578,11 +575,11 @@ elif page.startswith("2"):
             "Entropy (bits)": "amount of detail in the image. Higher means more variation, including noise.",
             "Dice (Otsu)": "only shown when you have ground-truth masks: how well a simple segmentation matches them.",
         })
-        if st.toggle(f"Show {min(MANY, len(samples))} images at once", False, key="many2",
+        if st.toggle(f"Show all {len(samples)} images at once", False, key="many2",
                       help="Applies the same enhancement to several images."):
             cells, changes = [], []
             with st.spinner("Enhancing…"):
-                for n_, im, tr, *_r in samples[:MANY]:
+                for n_, im, tr, *_r in samples:
                     b_ = phases.denoise(im, den)
                     a_ = phases.enhance(b_, enh)
                     sb, sa = phases.separability(b_), phases.separability(a_)
@@ -702,11 +699,11 @@ elif page.startswith("3"):
                                          "neighbour. **Higher is better. This measures overlap handling.**",
             "Dice / IoU": "only shown when you have ground-truth masks: overlap between the outlines and the true cell area.",
         })
-        if st.toggle(f"Show {min(MANY, len(samples))} images at once", False, key="many3",
+        if st.toggle(f"Show all {len(samples)} images at once", False, key="many3",
                       help="Runs the same segmentation on several images."):
             cells, marked, separated = [], 0, 0
             with st.spinner("Segmenting…"):
-                for n_, im, tr, pts_, tc in samples[:MANY]:
+                for n_, im, tr, pts_, tc in samples:
                     w_ = phases.preprocess(im, den, enh)
                     lab_ = phases.segment(w_, sg)
                     sc_ = phases.segmentation_scores(lab_, tr, pts_, tc)
