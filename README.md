@@ -10,7 +10,8 @@ Research tool only. Not a medical device and not for diagnosis.
 ## Quick start (Windows)
 
 1. Install Python 3.11–3.13 from https://www.python.org/downloads/ and tick **"Add python.exe to PATH"**.
-2. Click **Code → Download ZIP** above and extract it (or `git clone` this repository).
+2. Install Git, then run `git clone https://github.com/NishantVibhute/Lukemia_Experiments.git`
+   (later, `git pull` in that folder fetches updates).
 3. Get the ALL-IDB dataset from its owner (http://www.dti.unimi.it/fscotti/all/) and put the
    `ALL_IDB1` and `ALL_IDB2` folders in the `data` folder. Without it the app runs in demo mode.
 4. Double-click **`start_app.bat`**. The first start installs everything (5–15 minutes); then the

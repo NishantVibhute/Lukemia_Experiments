@@ -9,16 +9,21 @@ feature extraction and classification. Research use only; it is not a diagnostic
 - A Windows computer (Mac/Linux: see the end of this file)
 - Python 3.11, 3.12 or 3.13 — download from https://www.python.org/downloads/
   **During installation, tick "Add python.exe to PATH".**
+- Git — https://git-scm.com/download/win
 - About 3 GB of free disk space and an internet connection for the first start
 
-## Step 1 · Download the app
+## Step 1 · Get the app
 
-**Easiest:** on the GitHub page click the green **Code** button → **Download ZIP**. Then
-right-click the zip → **Extract All…** → choose a folder, e.g. `Documents\ALL_Study_App`.
-Do not run it from inside the zip.
+You need **Git** (https://git-scm.com/download/win, default options are fine). Open a terminal
+(Command Prompt or PowerShell) in the folder where you want the app and run:
 
-**If you use git:** `git clone <repository address>` gives you the same folder, and
-`git pull` later fetches updates.
+```
+git clone https://github.com/NishantVibhute/Lukemia_Experiments.git
+cd Lukemia_Experiments
+```
+
+**Getting updates later:** in that folder run `git pull`. Your dataset and saved results are
+not touched, because they are never part of the repository.
 
 ## Step 2 · Add the dataset
 
