@@ -28,7 +28,7 @@ not touched, because they are never part of the repository.
 ## Step 2 · Add the dataset
 
 The app uses the public **ALL-IDB** dataset (University of Milan). It is not included in
-the download. Request it from the dataset owner at http://www.dti.unimi.it/fscotti/all/ (the address given in the dataset's own readme) and
+the download. Request it from the dataset owner at https://scotti.di.unimi.it/all/ (fill in the request form https://scotti.di.unimi.it/all/form_ALL-IDB.pdf) and
 accept their terms of use.
 
 Put the downloaded folders inside the `data` folder of the app, so it looks like this:
