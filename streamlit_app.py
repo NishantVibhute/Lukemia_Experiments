@@ -28,7 +28,8 @@ from app.imaging import decode_bytes, resize_max  # noqa: E402
 RESULTS = ROOT / "results"
 STATE = RESULTS / "state.json"
 VERSION = 2
-PHASES = ["Dataset", "1 · Noise removal", "2 · Contrast enhancement", "3 · Segmentation",
+PLAYGROUND = "Preprocessing playground"
+PHASES = ["Dataset", PLAYGROUND, "1 · Noise removal", "2 · Contrast enhancement", "3 · Segmentation",
           "4 · Feature extraction", "5 · Classification", "Summary"]
 
 st.set_page_config(page_title="ALL study", layout="wide")
@@ -374,6 +375,127 @@ if page == "Dataset":
     synthetic_note()
     for col, s in zip(st.columns(4), get_smears()[:4]):
         col.image(rgb(s[1]), caption=s[0], use_container_width=True)
+
+elif page == PLAYGROUND:
+    st.header("Preprocessing playground")
+    st.markdown("**Goal:** build your own chain of steps (add noise, filter, filter the result again, enhance "
+                "contrast) and see what every step does to every image.")
+    guide("Pick the images to work on.",
+          "Add steps one at a time. They run top to bottom, each on the result of the step before.",
+          "Look at each image after each step. If the chain works well, save it as a Phase 1 trial "
+          "to compare it with the single filters.")
+    synthetic_note()
+    samples = get_smears()
+
+    step(1, "Choose the images")
+    names = [x[0] for x in samples]
+    picked = st.multiselect("Images from the study set", names, names[:3], key="pg_images")
+    upload = st.file_uploader("…or add one of your own", type=["jpg", "jpeg", "png", "tif", "tiff", "bmp"],
+                              key="pg_upload")
+    imgs = [(x[0], x[1]) for x in samples if x[0] in picked]
+    if upload is not None:
+        imgs.append((upload.name, resize_max(decode_bytes(upload.getvalue()), 1024)[0]))
+
+    step(2, "Build the chain of steps")
+    chain_file = RESULTS / "playground_chain.json"
+    if "chain" not in st.session_state:
+        st.session_state.chain = (json.loads(chain_file.read_text(encoding="utf-8"))
+                                  if chain_file.exists() else [])
+    chain = st.session_state.chain
+
+    def store(new_chain):
+        st.session_state.chain = new_chain
+        RESULTS.mkdir(exist_ok=True)
+        chain_file.write_text(json.dumps(new_chain, indent=2), encoding="utf-8")
+        st.rerun()
+
+    c = st.columns(2)
+    kind = c[0].selectbox("Step type", list(phases.STEP_TYPES), key="pg_kind",
+                          format_func=lambda k: phases.STEP_TYPES[k][0])
+    schema = phases.STEP_TYPES[kind][1]
+    method = c[1].selectbox("Method", list(schema), key=f"pg_method_{kind}",
+                            format_func=lambda m: phases.NOISE.get(m, m))
+    params = param_widgets(schema[method], f"pg_{kind}_{method}")
+    if st.button("➕ Add this step", type="primary"):
+        store(chain + [phases.make_step(kind, method, params)])
+
+    if not chain:
+        st.info("No steps yet. A typical start: **Add noise**, then a **Filter**, then another **Filter** "
+                "on its result.")
+    for i, s_ in enumerate(chain):
+        r = st.columns([8, 1, 1, 1])
+        r[0].markdown(f"**{i + 1}.** {phases.STEP_TYPES[s_['type']][0]} — {s_['label']}")
+        if r[1].button("⬆", key=f"pg_up{i}", disabled=i == 0, help="Move up"):
+            new = chain.copy()
+            new[i - 1], new[i] = new[i], new[i - 1]
+            store(new)
+        if r[2].button("⬇", key=f"pg_down{i}", disabled=i == len(chain) - 1, help="Move down"):
+            new = chain.copy()
+            new[i + 1], new[i] = new[i], new[i + 1]
+            store(new)
+        if r[3].button("✖", key=f"pg_del{i}", help="Remove this step"):
+            store(chain[:i] + chain[i + 1:])
+    if chain and st.button("Clear all steps"):
+        store([])
+
+    step(3, "See the result of every step")
+    if not chain or not imgs:
+        st.caption("Choose at least one image and add at least one step.")
+    else:
+        zoom = st.toggle("Zoom in on a cell (noise is hard to see at full size)", True, key="pg_zoom")
+        table = []
+        with st.spinner("Running the chain…"):
+            for i, (n_, im) in enumerate(imgs):
+                outs = phases.run_chain(im, chain, seed=i)
+                bx = phases.zoom_box(im) if zoom else (slice(None), slice(None))
+                cells = [(small(im[bx]), f"{n_} · original")]
+                for j, (s_, o) in enumerate(zip(chain, outs), 1):
+                    q = pp.quality(im, o)
+                    table.append({"image": n_, "step": f"{j}. {s_['label']}", "psnr": q["psnr"], "ssim": q["ssim"]})
+                    cells.append((small(o[bx]), f"Step {j} · {s_['label']} · PSNR {q['psnr']:.1f} dB"))
+                st.markdown(f"**{n_}**")
+                grid(cells, min(len(cells), 4))
+        df = pd.DataFrame(table)
+        mean = df.groupby("step", sort=False)[["psnr", "ssim"]].mean()
+        st.markdown(f"**Average over the {len(imgs)} image(s) after each step** "
+                    "(compared with the original; higher is better)")
+        st.dataframe(mean.rename(columns={"psnr": "PSNR (dB) ↑", "ssim": "SSIM ↑"})
+                     .style.format({"PSNR (dB) ↑": "{:.2f}", "SSIM ↑": "{:.3f}"}), use_container_width=True)
+        st.bar_chart(mean[["psnr"]], horizontal=True)
+        last_noise = max((j for j, s_ in enumerate(chain) if s_["type"] == "noise"), default=None)
+        if last_noise is not None and last_noise < len(chain) - 1:
+            before, after = mean["psnr"].iloc[last_noise], mean["psnr"].iloc[-1]
+            if after - before > 0.5:
+                verdict("good", f"The steps after the noise improved the images: PSNR {before:.1f} → {after:.1f} dB "
+                                f"(+{after - before:.1f}).")
+            elif after - before < -0.5:
+                verdict("bad", f"The steps after the noise made the images worse: PSNR {before:.1f} → {after:.1f} dB.")
+            else:
+                verdict("flat", f"The steps after the noise made almost no difference ({before:.1f} → {after:.1f} dB).")
+        glossary({
+            "PSNR (dB)": "how close the image is to the original. **Higher is better.** It drops when noise is "
+                         "added and should rise again as filters clean it up.",
+            "SSIM": "how well shapes and edges match the original, from 0 to 1. Higher is better.",
+            "Contrast steps": "enhancement changes the image on purpose, so PSNR usually falls after it; "
+                              "judge those steps by eye or in Phase 2.",
+        })
+
+    step(4, "Save the chain as a Phase 1 trial")
+    noise_idx = [j for j, s_ in enumerate(chain) if s_["type"] == "noise"]
+    proc_idx = [j for j, s_ in enumerate(chain) if s_["type"] != "noise"]
+    if not noise_idx or not proc_idx:
+        st.caption("To save, the chain needs at least one noise step and at least one filter or enhancement step.")
+    elif max(noise_idx) > min(proc_idx):
+        st.caption("To save, move all noise steps to the top: the saved trial adds the noise first and then "
+                   "measures how well the remaining steps remove it.")
+    else:
+        st.caption(f"Saving adds the noise to {len(samples)} clean images, runs your filter steps and stores the "
+                   "average, exactly like a Phase 1 trial. You can then compare and choose it in Phase 1.")
+        if st.button(f"Save as a Phase 1 trial (measure on {len(samples)} images)"):
+            with st.spinner("Measuring…"):
+                rows, figs, context = phases.chain_trial(samples, chain)
+                add_trial(1, phases.chain_spec(chain), rows, figs, context)
+            st.success("Saved. Open **1 · Noise removal → tab ②** to compare it with the other trials.")
 
 # ---------------------------------------------------------------- phase 1
 

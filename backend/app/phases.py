@@ -71,6 +71,10 @@ def spec(method, params=None, schema=None):
 
 def denoise(img, s):
     m, p = s["method"], s["params"]
+    if m == "Chain":  # several filter / enhancement steps built in the playground
+        for step_ in p["steps"]:
+            img = apply_step(img, step_)
+        return img
     if m == "Median":
         return pp.median(img, p["kernel"])
     if m == "Gaussian":
@@ -145,6 +149,78 @@ def noise_trial(samples, den, kinds, sp_density=0.02, gauss_sigma=10.0):
                 figs[f"{NOISE[kind]} · BEFORE ({base['psnr']:.1f} dB)"] = noisy[box]
                 figs[f"{NOISE[kind]} · AFTER ({q['psnr']:.1f} dB)"] = out[box]
     return pd.DataFrame(rows), figs
+
+
+# ------------------------------------------- playground: chains of steps
+#
+# A step is {"type": "noise" | "filter" | "enhance", "method", "params", "label"}.
+
+_STRENGTH = ("slider", 2.0, 40.0, 10.0, 1.0)
+_DENSITY = ("slider", 0.005, 0.10, 0.02, 0.005)
+NOISE_PARAMS = {
+    "salt_pepper": {"density": _DENSITY},
+    "gaussian": {"strength": _STRENGTH},
+    "speckle": {"strength": _STRENGTH},
+    "poisson": {"strength": _STRENGTH},
+    "mixed": {"density": _DENSITY, "strength": _STRENGTH},
+}
+STEP_TYPES = {"noise": ("Add noise", NOISE_PARAMS), "filter": ("Filter", DENOISE_PARAMS),
+              "enhance": ("Enhance contrast", ENHANCE_PARAMS)}
+
+
+def make_step(kind, method, params):
+    s_ = spec(method, params)
+    if kind == "noise":
+        shown = ", ".join(f"{k}={v:g}" for k, v in params.items())
+        s_["label"] = f"{NOISE[method]} noise ({shown})"
+    return {"type": kind, **s_}
+
+
+def apply_step(img, step_, seed=0):
+    if step_["type"] == "noise":
+        p_ = step_["params"]
+        return pp.add_noise(img, step_["method"], p_.get("density", 0.02), p_.get("strength", 10.0), seed=seed)
+    if step_["type"] == "filter":
+        return denoise(img, step_)
+    return enhance(img, step_)
+
+
+def run_chain(img, steps, seed=0):
+    """Image after each step: [after step 1, after step 2, ...]."""
+    out = []
+    for step_ in steps:
+        img = apply_step(img, step_, seed)
+        out.append(img)
+    return out
+
+
+def chain_spec(steps):
+    """The processing steps (no noise) as one spec that phases 2-5 can apply."""
+    proc = [s_ for s_ in steps if s_["type"] != "noise"]
+    return {"method": "Chain", "params": {"steps": proc}, "label": " → ".join(s_["label"] for s_ in proc)}
+
+
+def chain_trial(samples, steps):
+    """Measure a chain like a phase 1 trial: the noise steps degrade each clean
+    image, the remaining steps try to restore it."""
+    noise = [s_ for s_ in steps if s_["type"] == "noise"]
+    den = chain_spec(steps)
+    # Same wording as phase 1 trials, so chains and single filters line up in the comparison.
+    noise_label = " + ".join(NOISE[s_["method"]] for s_ in noise)
+    context = " + ".join(f"{NOISE[s_['method']]} noise, " + ", ".join(
+        f"{k} {s_['params'][k]:g}" for k in ("density", "strength") if k in s_["params"]) for s_ in noise)
+    rows, figs = [], {}
+    for i, (name, img, *_r) in enumerate(samples):
+        noisy = img
+        for s_ in noise:
+            noisy = apply_step(noisy, s_, seed=i)
+        out = denoise(noisy, den)
+        q, base = pp.quality(img, out), pp.quality(img, noisy)
+        rows.append({"image": name, "noise": noise_label, **q, "psnr_noisy": base["psnr"]})
+        if i == 0:
+            box = zoom_box(img)
+            figs = {f"BEFORE ({base['psnr']:.1f} dB)": noisy[box], f"AFTER ({q['psnr']:.1f} dB)": out[box]}
+    return pd.DataFrame(rows), figs, context
 
 
 # ------------------------------------------ phase 2: contrast enhancement
