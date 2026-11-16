@@ -145,17 +145,35 @@ def add_noise(img, kind="mixed", sp_density=0.02, gauss_sigma=10.0, seed=0):
 
 # ---------------------------------------------------------------- metrics
 
+def _edge_map(img):
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.float64)
+    lap = cv2.Laplacian(gray, cv2.CV_64F)
+    return lap - lap.mean()
+
+
 def quality(reference, test):
-    """MSE on the [0, 1] intensity scale, PSNR and SNR in dB, plus SSIM."""
+    """Full-reference image quality of `test` against the clean `reference`.
+
+    mse / rmse / mae on the [0, 1] intensity scale (lower is better);
+    psnr and snr in dB, ssim, epi (edge preservation index) and ncc
+    (normalised cross-correlation) - higher is better.
+    """
     ref = reference.astype(np.float64) / 255.0
     x = test.astype(np.float64) / 255.0
-    err = float(np.mean((ref - x) ** 2))
+    diff = ref - x
+    err = float(np.mean(diff ** 2))
     eps = 1e-12
+    er, et = _edge_map(reference), _edge_map(test)
+    rc, xc = ref - ref.mean(), x - x.mean()
     return {
-        "mse": err,
         "psnr": float(10 * np.log10(1.0 / max(err, eps))),
-        "snr": float(10 * np.log10(np.sum(ref ** 2) / max(np.sum((ref - x) ** 2), eps))),
+        "snr": float(10 * np.log10(np.sum(ref ** 2) / max(np.sum(diff ** 2), eps))),
+        "mse": err,
+        "rmse": float(np.sqrt(err)),
+        "mae": float(np.mean(np.abs(diff))),
         "ssim": float(structural_similarity(reference, test, channel_axis=2, data_range=255)),
+        "epi": float(np.sum(er * et) / max(np.sqrt(np.sum(er ** 2) * np.sum(et ** 2)), eps)),
+        "ncc": float(np.sum(rc * xc) / max(np.sqrt(np.sum(rc ** 2) * np.sum(xc ** 2)), eps)),
     }
 
 

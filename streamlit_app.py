@@ -172,6 +172,56 @@ PARAM_HELP = {
 }
 
 
+# Image quality measurements: label, higher is better?, decimals, plain explanation.
+METRICS = {
+    "psnr": ("PSNR (dB)", True, 2, "how close the image is to the clean original. The main number."),
+    "snr": ("SNR (dB)", True, 2, "signal strength compared with the noise that is left."),
+    "mse": ("MSE", False, 5, "average squared difference from the clean original."),
+    "rmse": ("RMSE", False, 4, "square root of MSE, in the same units as the pixel values (0-1)."),
+    "mae": ("MAE", False, 4, "average absolute difference from the clean original; less affected by a few extreme pixels."),
+    "ssim": ("SSIM", True, 3, "how well structure (shapes, edges, texture) is preserved, from 0 to 1."),
+    "epi": ("Edge preservation (EPI)", True, 3, "how well cell edges survive, from 0 to 1; low means edges were blurred away."),
+    "ncc": ("Correlation (NCC)", True, 3, "how closely the brightness pattern follows the original, from -1 to 1."),
+}
+DEFAULT_METRICS = ["psnr", "snr", "mse", "ssim"]
+
+
+def metric_name(k):
+    label, higher, *_ = METRICS[k]
+    return f"{label} {'↑' if higher else '↓'}"
+
+
+def metric_value(k, v):
+    return f"{v:.{METRICS[k][2]}f}"
+
+
+def metric_picker(key, default=None):
+    """Choose which quality measurements to display (the choice is shared across pages)."""
+    if key not in st.session_state:
+        st.session_state[key] = list(st.session_state.get("metrics_shown", default or DEFAULT_METRICS))
+    chosen = st.multiselect("Measurements to show", list(METRICS), key=key, format_func=metric_name,
+                            help="↑ higher is better, ↓ lower is better. Open “What do these numbers mean?” below.")
+    st.session_state.metrics_shown = chosen
+    return chosen or ["psnr"]
+
+
+def metric_glossary(extra=None):
+    glossary({metric_name(k): f"{v[3]} **{'Higher' if v[1] else 'Lower'} is better.**" for k, v in METRICS.items()}
+             | (extra or {}))
+
+
+def metric_table(df, by, keys):
+    """(means, 'mean ± std' text with sensible decimals) for quality measurements."""
+    keys = [k for k in keys if k in df.columns and df[k].notna().any()]
+    g = df.groupby(by, sort=False)[keys]
+    mean, std = g.mean(), g.std(ddof=0)
+    text = pd.DataFrame(index=mean.index)
+    for k in keys:
+        d = METRICS[k][2] if k in METRICS else 2
+        text[k] = [f"{m:.{d}f} ± {s_:.{d}f}" if pd.notna(m) else "–" for m, s_ in zip(mean[k], std[k])]
+    return mean, text
+
+
 def guide(*steps):
     """A short 'what to do on this page' box."""
     st.info("**What to do here**\n\n" + "\n".join(f"{i}. {t}" for i, t in enumerate(steps, 1)))
@@ -443,6 +493,7 @@ elif page == PLAYGROUND:
         st.caption("Choose at least one image and add at least one step.")
     else:
         zoom = st.toggle("Zoom in on a cell (noise is hard to see at full size)", True, key="pg_zoom")
+        shown = metric_picker("pg_metrics")
         table = []
         with st.spinner("Running the chain…"):
             for i, (n_, im) in enumerate(imgs):
@@ -451,17 +502,19 @@ elif page == PLAYGROUND:
                 cells = [(small(im[bx]), f"{n_} · original")]
                 for j, (s_, o) in enumerate(zip(chain, outs), 1):
                     q = pp.quality(im, o)
-                    table.append({"image": n_, "step": f"{j}. {s_['label']}", "psnr": q["psnr"], "ssim": q["ssim"]})
-                    cells.append((small(o[bx]), f"Step {j} · {s_['label']} · PSNR {q['psnr']:.1f} dB"))
+                    table.append({"image": n_, "step": f"{j}. {s_['label']}", **q})
+                    cells.append((small(o[bx]), f"Step {j} · {s_['label']} · " +
+                                   " · ".join(f"{METRICS[k][0]} {metric_value(k, q[k])}" for k in shown)))
                 st.markdown(f"**{n_}**")
                 grid(cells, min(len(cells), 4))
         df = pd.DataFrame(table)
-        mean = df.groupby("step", sort=False)[["psnr", "ssim"]].mean()
-        st.markdown(f"**Average over the {len(imgs)} image(s) after each step** "
-                    "(compared with the original; higher is better)")
-        st.dataframe(mean.rename(columns={"psnr": "PSNR (dB) ↑", "ssim": "SSIM ↑"})
-                     .style.format({"PSNR (dB) ↑": "{:.2f}", "SSIM ↑": "{:.3f}"}), use_container_width=True)
-        st.bar_chart(mean[["psnr"]], horizontal=True)
+        mean = df.groupby("step", sort=False)[list(METRICS)].mean()
+        st.markdown(f"**Average over the {len(imgs)} image(s) after each step** (compared with the original)")
+        st.dataframe(mean[shown].rename(columns={k: metric_name(k) for k in METRICS})
+                     .style.format({metric_name(k): f"{{:.{METRICS[k][2]}f}}" for k in shown}),
+                     use_container_width=True)
+        chart_k = st.radio("Chart", shown, format_func=metric_name, horizontal=True, key="pg_chart")
+        st.bar_chart(mean[[chart_k]].rename(columns={chart_k: metric_name(chart_k)}), horizontal=True)
         last_noise = max((j for j, s_ in enumerate(chain) if s_["type"] == "noise"), default=None)
         if last_noise is not None and last_noise < len(chain) - 1:
             before, after = mean["psnr"].iloc[last_noise], mean["psnr"].iloc[-1]
@@ -472,13 +525,8 @@ elif page == PLAYGROUND:
                 verdict("bad", f"The steps after the noise made the images worse: PSNR {before:.1f} → {after:.1f} dB.")
             else:
                 verdict("flat", f"The steps after the noise made almost no difference ({before:.1f} → {after:.1f} dB).")
-        glossary({
-            "PSNR (dB)": "how close the image is to the original. **Higher is better.** It drops when noise is "
-                         "added and should rise again as filters clean it up.",
-            "SSIM": "how well shapes and edges match the original, from 0 to 1. Higher is better.",
-            "Contrast steps": "enhancement changes the image on purpose, so PSNR usually falls after it; "
-                              "judge those steps by eye or in Phase 2.",
-        })
+        metric_glossary({"Contrast steps": "enhancement changes the image on purpose, so most of these get worse "
+                                           "after it; judge those steps by eye or in Phase 2."})
 
     step(4, "Save the chain as a Phase 1 trial")
     noise_idx = [j for j, s_ in enumerate(chain) if s_["type"] == "noise"]
@@ -539,11 +587,12 @@ elif page.startswith("1"):
         v[0].image(rgb(img[box]), caption="Clean original", use_container_width=True)
         v[1].image(rgb(noisy[box]), caption=f"BEFORE · {phases.NOISE[kind]} noise", use_container_width=True)
         v[2].image(rgb(out[box]), caption=f"AFTER · {den['label']}", use_container_width=True)
-        m = st.columns(4)
-        m[0].metric("PSNR (dB)", f"{q['psnr']:.2f}", f"{q['psnr'] - base['psnr']:+.2f} vs noisy")
-        m[1].metric("SNR (dB)", f"{q['snr']:.2f}", f"{q['snr'] - base['snr']:+.2f}")
-        m[2].metric("MSE", f"{q['mse']:.5f}", f"{q['mse'] - base['mse']:+.5f}", delta_color="inverse")
-        m[3].metric("SSIM", f"{q['ssim']:.3f}", f"{q['ssim'] - base['ssim']:+.3f}")
+        shown = metric_picker("p1_metrics")
+        for start in range(0, len(shown), 4):
+            for col, k in zip(st.columns(4), shown[start:start + 4]):
+                d = METRICS[k][2]
+                col.metric(METRICS[k][0], metric_value(k, q[k]), f"{q[k] - base[k]:+.{d}f} vs noisy",
+                           delta_color="normal" if METRICS[k][1] else "inverse")
         gain = q["psnr"] - base["psnr"]
         if gain > 0.5:
             verdict("good", f"The filter improved this image: PSNR went from {base['psnr']:.1f} to {q['psnr']:.1f} dB "
@@ -553,13 +602,7 @@ elif page.startswith("1"):
                            "It is probably blurring more than it cleans; try a smaller setting or another filter.")
         else:
             verdict("flat", f"The filter made almost no difference (PSNR {base['psnr']:.1f} → {q['psnr']:.1f} dB).")
-        glossary({
-            "PSNR (dB)": "how close the filtered image is to the clean original. **Higher is better.** This is the main number.",
-            "SNR (dB)": "signal strength compared with remaining noise. Higher is better.",
-            "MSE": "average squared error against the clean original. **Lower is better.**",
-            "SSIM": "how well shapes and edges are preserved, from 0 to 1. Higher is better.",
-            "Small number under each value": "the change compared with the noisy image, before filtering.",
-        })
+        metric_glossary({"Small number under each value": "the change compared with the noisy image, before filtering."})
         if st.toggle(f"Show all {len(samples)} images at once", False, key="many1",
                       help="Applies the same noise and filter to several images, so you can see whether "
                            "the result holds up beyond the one preview image."):
@@ -571,8 +614,9 @@ elif page.startswith("1"):
                     qa, qb = pp.quality(im, out_), pp.quality(im, nz)
                     gains.append(qa["psnr"] - qb["psnr"])
                     bx = phases.zoom_box(im) if zoom else (slice(None), slice(None))
-                    cells += [(small(nz[bx]), f"{n_} · BEFORE · {qb['psnr']:.1f} dB"),
-                              (small(out_[bx]), f"{n_} · AFTER · {qa['psnr']:.1f} dB")]
+                    cap = lambda qq: " · ".join(f"{METRICS[k][0]} {metric_value(k, qq[k])}" for k in shown)
+                    cells += [(small(nz[bx]), f"{n_} · BEFORE · {cap(qb)}"),
+                              (small(out_[bx]), f"{n_} · AFTER · {cap(qa)}")]
             better = sum(g > 0.5 for g in gains)
             verdict("good" if better == len(gains) else ("bad" if better == 0 else "flat"),
                     f"The filter improved {better} of {len(gains)} images; average PSNR change "
@@ -606,17 +650,19 @@ elif page.startswith("1"):
         else:
             rows["gain"] = rows["psnr"] - rows["psnr_noisy"]
             st.subheader(f"{rows['trial'].nunique()} saved trials · {rows['image'].nunique()} images each")
-            mean, text = summary(rows, "trial", ["psnr", "gain", "snr", "mse", "ssim"])
-            text["mse"] = [f"{x:.5f}" for x in mean["mse"]]
+            mean, text = metric_table(rows, "trial", ["gain", *METRICS])
             order = mean["psnr"].sort_values(ascending=False).index
             st.success(f"🏆 Best so far: **{order[0]}** — average PSNR {mean.loc[order[0], 'psnr']:.2f} dB, "
                        f"{mean.loc[order[0], 'gain']:.2f} dB better than the noisy images.")
             st.caption("Ranked best first. Each value is the average over the images ± how much it varied.")
-            detail = st.toggle("Show all measurements", False, key="detail1")
-            keep = ["psnr", "gain", "snr", "mse", "ssim"] if detail else ["psnr", "gain", "ssim"]
-            st.dataframe(text.loc[order, keep].rename(columns={
-                "psnr": "PSNR (dB) ↑", "gain": "Improvement over noisy (dB) ↑", "snr": "SNR (dB) ↑",
-                "mse": "MSE ↓", "ssim": "SSIM ↑"}), use_container_width=True)
+            shown = [k for k in metric_picker("p1c_metrics") if k in text.columns]
+            keep = shown[:1] + ["gain"] + shown[1:]
+            st.dataframe(text.loc[order, keep].rename(
+                columns={"gain": "PSNR improvement over noisy (dB) ↑", **{k: metric_name(k) for k in METRICS}}),
+                use_container_width=True)
+            if any(k not in rows.columns or rows[k].isna().any() for k in METRICS):
+                st.caption("Trials saved before a measurement was added show “–” for it; save them again to fill it in.")
+            detail = st.toggle("Show PSNR for each noise type", False, key="detail1")
             wide = rows.pivot_table(index="trial", columns="noise", values="psnr", sort=False).loc[order]
             st.markdown("**PSNR of each trial (longer bar = better)**")
             st.bar_chart(wide, horizontal=True, stack=False)
