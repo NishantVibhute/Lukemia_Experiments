@@ -55,7 +55,7 @@ on the Dataset page (use a small number while exploring, all 108 for final resul
 
 | Phase | Methods you can try | Judged by |
 |---|---|---|
-| 1 Noise removal | Median, Gaussian, Bilateral, Wiener, Adaptive Median, Median → Gaussian, Gaussian → Median, each with its own settings, under salt-and-pepper, Gaussian, speckle, Poisson or mixed noise | PSNR (main), SNR, MSE, SSIM against the clean image |
+| 1 Noise removal | Median, Gaussian, Bilateral, Wiener, Adaptive Median, Median → Gaussian, Gaussian → Median, each with its own settings, under salt-and-pepper, Gaussian, speckle, Poisson or mixed noise | Image quality against the clean image: PSNR (main), SNR, MSE, RMSE, MAE, SSIM, edge preservation, correlation |
 | 2 Contrast enhancement | None, Histogram Equalization, Contrast Stretching, CLAHE (clip limit and tile size adjustable) | Nucleus separability, or Dice of Otsu segmentation if masks exist |
 | 3 Segmentation | Otsu, adaptive threshold, K-Means, Fuzzy C-Means, watershed, marker-controlled watershed (+ U-Net, AMIS once trained), each on raw and preprocessed images | Annotated cells found and separated; Dice / IoU with masks; paired t-test for the preprocessing effect |
 
@@ -63,9 +63,30 @@ on the Dataset page (use a small number while exploring, all 108 for final resul
 
 A free-form page for building your own chain of steps: **Add noise**, **Filter**, filter the
 result again, **Enhance contrast**, in any order. Every image is shown after every step with
-its PSNR against the original, plus the average per step. A chain with its noise steps at the
+its quality measurements against the original, plus the average per step and a chart of any
+measurement. A chain with its noise steps at the
 top can be saved as a Phase 1 trial and chosen there like any single filter; only its filter
 and enhancement steps are carried forward.
+
+### Image quality measurements
+
+Phase 1 and the playground compare each image with the clean original using eight
+measurements (↑ higher is better, ↓ lower is better):
+
+| Measurement | What it tells you |
+|---|---|
+| PSNR (dB) ↑ | How close the image is to the original; the main number |
+| SNR (dB) ↑ | Signal strength compared with the noise that is left |
+| MSE ↓ | Average squared difference from the original (0–1 intensity scale) |
+| RMSE ↓ | Square root of MSE, in pixel units |
+| MAE ↓ | Average absolute difference; less affected by a few extreme pixels |
+| SSIM ↑ | How well structure (shapes, edges, texture) is kept, 0–1 |
+| Edge preservation (EPI) ↑ | How well cell edges survive, 0–1; low means edges were blurred |
+| Correlation (NCC) ↑ | How closely the brightness pattern follows the original, −1 to 1 |
+
+Choose which ones to display in the **Measurements to show** box, or tick **Show all**. They
+are listed one per line under each image. Trials saved before a measurement existed show "–"
+for it; save them again to fill it in.
 
 ### Phases 4–5 and Summary
 
