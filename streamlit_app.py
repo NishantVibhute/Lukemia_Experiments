@@ -351,11 +351,22 @@ def small(img, side=480):
 
 
 def grid(cells, columns=4):
-    """Show (image, caption) pairs in rows of `columns`."""
+    """Show images in rows of `columns`. Each cell is (image, caption) or
+    (image, caption, measurements); measurements are listed one per line below."""
     for start in range(0, len(cells), columns):
         cols = st.columns(columns)
-        for col, (im, cap) in zip(cols, cells[start:start + columns]):
-            col.image(im, caption=cap, use_container_width=True)
+        for col, (im, cap, *rest) in zip(cols, cells[start:start + columns]):
+            col.image(im, use_container_width=True)
+            col.markdown(f"**{cap}**")
+            if rest and rest[0]:
+                # Short names keep each measurement on one aligned row, even in narrow columns.
+                col.markdown("  \n".join(
+                    f"{k.upper()} {'↑' if METRICS[k][1] else '↓'} **{metric_value(k, v)}**"
+                    for k, v in rest[0].items()))
+
+
+def measured(q, keys):
+    return {k: q[k] for k in keys}
 
 
 def preview_picker(samples, key):
@@ -508,8 +519,7 @@ elif page == PLAYGROUND:
                 for j, (s_, o) in enumerate(zip(chain, outs), 1):
                     q = pp.quality(im, o)
                     table.append({"image": n_, "step": f"{j}. {s_['label']}", **q})
-                    cells.append((small(o[bx]), f"Step {j} · {s_['label']} · " +
-                                   " · ".join(f"{METRICS[k][0]} {metric_value(k, q[k])}" for k in shown)))
+                    cells.append((small(o[bx]), f"Step {j} · {s_['label']}", measured(q, shown)))
                 st.markdown(f"**{n_}**")
                 grid(cells, min(len(cells), 4))
         df = pd.DataFrame(table)
@@ -619,9 +629,8 @@ elif page.startswith("1"):
                     qa, qb = pp.quality(im, out_), pp.quality(im, nz)
                     gains.append(qa["psnr"] - qb["psnr"])
                     bx = phases.zoom_box(im) if zoom else (slice(None), slice(None))
-                    cap = lambda qq: " · ".join(f"{METRICS[k][0]} {metric_value(k, qq[k])}" for k in shown)
-                    cells += [(small(nz[bx]), f"{n_} · BEFORE · {cap(qb)}"),
-                              (small(out_[bx]), f"{n_} · AFTER · {cap(qa)}")]
+                    cells += [(small(nz[bx]), f"{n_} · BEFORE", measured(qb, shown)),
+                              (small(out_[bx]), f"{n_} · AFTER", measured(qa, shown))]
             better = sum(g > 0.5 for g in gains)
             verdict("good" if better == len(gains) else ("bad" if better == 0 else "flat"),
                     f"The filter improved {better} of {len(gains)} images; average PSNR change "
