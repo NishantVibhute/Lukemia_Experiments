@@ -199,8 +199,13 @@ def metric_picker(key, default=None):
     """Choose which quality measurements to display (the choice is shared across pages)."""
     if key not in st.session_state:
         st.session_state[key] = list(st.session_state.get("metrics_shown", default or DEFAULT_METRICS))
-    chosen = st.multiselect("Measurements to show", list(METRICS), key=key, format_func=metric_name,
+    c1, c2 = st.columns([5, 1])
+    show_all = c2.checkbox("Show all", key=f"{key}_all", help="Show all eight measurements")
+    chosen = c1.multiselect("Measurements to show", list(METRICS), key=key, format_func=metric_name,
+                            disabled=show_all,
                             help="↑ higher is better, ↓ lower is better. Open “What do these numbers mean?” below.")
+    if show_all:
+        return list(METRICS)
     st.session_state.metrics_shown = chosen
     return chosen or ["psnr"]
 
