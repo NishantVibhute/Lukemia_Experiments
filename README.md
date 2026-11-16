@@ -29,25 +29,60 @@ The dataset is not included in this repository; it is distributed by its owner u
 
 ## How the study works
 
-The app walks through the thesis one phase at a time. Each phase runs every available
-method, shows the measurements, writes a conclusion and records which method is carried
-into the next phase. Confirming a phase unlocks the next one; changing an earlier
-decision clears the later phases, because they depended on it.
+The app walks through the thesis one phase at a time. Each phase feeds the next: the
+method you confirm in one phase is applied to the images before the next phase runs.
+Changing an earlier decision clears the later phases, because they were measured on the
+old input.
 
-| Phase | Methods compared | Decided by |
+```
+Phase 1 filter (or your own chain) → Phase 2 contrast → Phase 3 segmentation
+    → Phase 4 features → Phase 5 classifier
+```
+
+### Phases 1–3: try, save, compare, decide
+
+Each of these phases has two tabs:
+
+1. **① Try and save** – pick an image and a method, tune its settings (every setting has a
+   **?** tooltip), and see BEFORE / AFTER with a plain-language verdict. Switch on
+   **"Show all images at once"** to see the same method on every image in the set.
+   Click **Save this trial** to measure that exact setting on all study images.
+2. **② Compare and decide** – every saved trial ranked best first, with a chart, the saved
+   images, an editable conclusion, and **Confirm and continue** to carry the best one forward.
+
+Nothing is saved unless you click **Save this trial**. The number of images per trial is set
+on the Dataset page (use a small number while exploring, all 108 for final results).
+
+| Phase | Methods you can try | Judged by |
 |---|---|---|
-| Dataset | - | Set the ALL-IDB folder (or demo mode on synthetic images) |
-| 1 Noise removal | Median, Gaussian, Bilateral, Wiener, Adaptive Median, Median → Gaussian, Gaussian → Median, under salt-and-pepper, Gaussian and mixed noise | PSNR, SNR, MSE, SSIM against the clean image; ANOVA |
-| 2 Contrast enhancement | None, Histogram Equalization, Contrast Stretching, CLAHE at four clip limits | Dice of Otsu segmentation if masks exist, otherwise nucleus separability |
-| 3 Segmentation | Otsu, adaptive threshold, K-Means, Fuzzy C-Means, watershed, marker-controlled watershed (+ U-Net, AMIS once trained), each on raw and preprocessed images | Cells separated, Dice, IoU; paired t-test for the preprocessing effect |
-| 4 Feature extraction | Morphological, texture, colour, combinations (+ deep features optionally) | ANOVA F-score per feature; cross-validated accuracy per feature group |
-| 5 Classification | SVM, Random Forest, k-NN, SADMC | k-fold accuracy, sensitivity, specificity, F1, ROC-AUC, confusion matrices |
-| Summary | - | Chosen pipeline, conclusions, downloadable report, try it on one image |
+| 1 Noise removal | Median, Gaussian, Bilateral, Wiener, Adaptive Median, Median → Gaussian, Gaussian → Median, each with its own settings, under salt-and-pepper, Gaussian, speckle, Poisson or mixed noise | PSNR (main), SNR, MSE, SSIM against the clean image |
+| 2 Contrast enhancement | None, Histogram Equalization, Contrast Stretching, CLAHE (clip limit and tile size adjustable) | Nucleus separability, or Dice of Otsu segmentation if masks exist |
+| 3 Segmentation | Otsu, adaptive threshold, K-Means, Fuzzy C-Means, watershed, marker-controlled watershed (+ U-Net, AMIS once trained), each on raw and preprocessed images | Annotated cells found and separated; Dice / IoU with masks; paired t-test for the preprocessing effect |
 
-Everything is written to `results/`: one CSV of raw per-image rows per phase, the example
-figures, `state.json` with the decisions and conclusions, and the trained models.
+### Preprocessing playground
 
+A free-form page for building your own chain of steps: **Add noise**, **Filter**, filter the
+result again, **Enhance contrast**, in any order. Every image is shown after every step with
+its PSNR against the original, plus the average per step. A chain with its noise steps at the
+top can be saved as a Phase 1 trial and chosen there like any single filter; only its filter
+and enhancement steps are carried forward.
 
+### Phases 4–5 and Summary
+
+| Phase | What runs | Judged by |
+|---|---|---|
+| 4 Feature extraction | Morphological, texture and colour features of each ALL-IDB2 cell (+ ResNet-50 / DenseNet-121 features optionally); each feature group is tested | ANOVA F-score per feature; cross-validated accuracy per group |
+| 5 Classification | SVM, Random Forest, k-NN, SADMC on the chosen features | k-fold accuracy, sensitivity, specificity, F1, ROC-AUC, confusion matrices |
+| Summary | The chosen pipeline and all conclusions; download a report; run the pipeline on one image | – |
+
+**Reading the numbers.** PSNR only says how well an image was cleaned. Whether the whole
+pipeline works is shown by the end result: Phase 3 cell separation and Phase 5 accuracy.
+
+### Where results are stored
+
+Everything goes to `results/` (never committed): per-trial CSVs with one row per image, the
+before/after figures, `state.json` with your decisions and conclusions, `playground_chain.json`,
+and the trained models. **Start the study again** in the sidebar clears it.
 
 ## How the thesis maps to the code
 
@@ -63,18 +98,21 @@ figures, `state.json` with the decisions and conclusions, and the trained models
 ## Things to know before quoting numbers
 
 - **Ground truth.** ALL-IDB1 ships blast centroids (`.xyc`), not pixel masks. Without masks
-  the Segmentation lab reports "cells found / cells separated" instead of Dice and IoU.
-  Put masks (same file stem as the image) in a folder and set it under Dataset & models.
+  Phase 3 reports "cells found / cells separated" instead of Dice and IoU. Put masks (same
+  file name as the image) in a folder and set it on the Dataset page.
+- **Over-segmentation.** "Cells separated" does not penalise cutting one cell into pieces;
+  check "instances per image" and the images as well.
+- **Comparable trials.** Only compare Phase 1 trials saved with the same noise type and
+  strength, and trials measured on the same number of images.
 - **Subtypes.** ALL-IDB2 is labelled normal vs lymphoblast only, so classification is
   binary. For L1/L2/L3 or B-ALL/T-ALL, set "Class folders" to a folder with one
   sub-folder of single-cell images per class.
-- **AMIS and U-Net** are untrained. `python train_segmentation.py --model amis --epochs 30
-  --pretrained` trains from the masks folder; a CUDA GPU is strongly recommended.
+- **AMIS and U-Net** are untrained. `python backend/train_segmentation.py --model amis
+  --epochs 30 --pretrained` trains from the masks folder; a CUDA GPU is strongly recommended.
   `--pseudo-labels` trains on watershed output instead, which only teaches the network to
   imitate watershed.
-- **Synthetic test images** are drawn shapes for checking the software. Never report them.
-- The "reported in the synopsis" rows in each lab are copied from the synopsis for
-  reference; the app does not reproduce them automatically.
+- **Synthetic test images** (demo mode) are drawn shapes for checking the software.
+  Never report them.
 
 ## Tests
 
